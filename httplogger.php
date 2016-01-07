@@ -34,6 +34,7 @@ class HttpLogger {
 
     public static function init($user, $key, $apiUrl = null)
     {
+        error_reporting(E_ERROR | E_WARNING | E_PARSE | E_NOTICE);
 
         self::$user = $user;
         self::$key = $key;
@@ -46,6 +47,7 @@ class HttpLogger {
 
         set_error_handler([__CLASS__,'errorHandler']);
         set_exception_handler([__CLASS__,'exceptionHandler']);
+        register_shutdown_function([__CLASS__,'shutdown']);
     }
 
     public static function warning($message)
@@ -79,6 +81,7 @@ class HttpLogger {
     public static function info($message)
     {
         $message = new message($message, self::$levels['info']);
+
         array_push(self::$stack, $message);
         self::_log($message);
     }
@@ -94,29 +97,46 @@ class HttpLogger {
         )));
     }
 
+    public static function shutdown()
+    {
+        self::fatal("Fatal error...");
+    }
 
     public static function errorHandler($errno, $errstr, $errfile, $errline)
     {
         switch ($errno) {
             case E_USER_ERROR:
+
+                $msg = "Fatal error [{$errno}] {$errstr}<br/>";
+                $msg .= "On string {$errline} in file {$errfile}<br/>";
+                self::error(new message(self::$levels['error'], $msg));
                 break;
 
             case E_USER_WARNING:
+
+                $msg = "Warning - [{$errno}] on {$errstr}";
+                self::warning(new message(self::$levels['warning'], $msg));
                 break;
 
             case E_USER_NOTICE:
+
+                $msg = "Notice - [{$errno}] on {$errstr}";
+                self::notice(new message(self::$levels['warning'], $msg));
                 break;
 
             default:
+
+                $msg = "Unknow error - [{$errno}] on {$errstr}";
+                self::info(new message(self::$levels['info'], $msg));
                 break;
         }
 
         return true;
     }
 
-    public static function exceptionHandler(\Exception $e)
+    public static function exceptionHandler(Exception $e)
     {
-        // ...
+        self::error($e->getMessage());
     }
 
 }
@@ -138,14 +158,13 @@ class message {
 
     public function __construct($message, $level)
     {
-
         $backtrace = debug_backtrace();
 
         $this->message = (string)$message;
         $this->level = intval($level);
         $this->file = $backtrace[1]['file'];
         $this->line = $backtrace[1]['line'];
-        $this->date = mktime();
+        $this->date = time();
     }
 
     public function message(){ return $this->message; }
