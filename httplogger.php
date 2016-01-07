@@ -18,7 +18,7 @@ class HttpLogger {
 
     private static $stack = [];
 
-    private static $order = 0;
+    private static $timeout = 30;
 
     /**
      * Errors types
@@ -92,7 +92,8 @@ class HttpLogger {
             'http' => array(
                 'method'  => 'PUT',
                 'header'  => self::$header,
-                'content' => $message->toJson()
+                'content' => $message->toJson(),
+                'timeout' => self::$timeout
             )
         )));
     }
@@ -154,17 +155,21 @@ class message {
 
     private $date;
 
+    private static $order = 0;
+
     private $stackTrace;
 
     public function __construct($message, $level)
     {
         $backtrace = debug_backtrace();
 
-        $this->message = (string)$message;
-        $this->level = intval($level);
-        $this->file = $backtrace[1]['file'];
-        $this->line = $backtrace[1]['line'];
-        $this->date = time();
+        $this->message      = (string)$message;
+        $this->level        = intval($level);
+        $this->file         = $backtrace[1]['file'];
+        $this->line         = $backtrace[1]['line'];
+        $this->date         = time();
+        $this->stackTrace   = $backtrace;
+        self::$order++;
     }
 
     public function message(){ return $this->message; }
@@ -180,11 +185,13 @@ class message {
     public function toJson()
     {
         return json_encode([
-            "message"   => $this->message,
-            "level"     => $this->level,
-            "file"      => $this->file,
-            "line"      => $this->line,
-            "date"      => $this->date
+            "message"       => $this->message,
+            "level"         => $this->level,
+            "file"          => $this->file,
+            "line"          => $this->line,
+            "date"          => $this->date,
+            "order"         => self::$order,
+            "stacktrace"    => $this->stackTrace
         ]);
     }
 
