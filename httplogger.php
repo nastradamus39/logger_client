@@ -20,6 +20,8 @@ class HttpLogger {
 
     private static $timeout = 30;
 
+    private static $enabled = true;
+
     /**
      * Errors types
      * @var array
@@ -42,8 +44,8 @@ class HttpLogger {
         if(!is_null($apiUrl)) self::$apiBaseUrl = $apiUrl;
 
         self::$header = "Content-Type: application/json\r\n".
-                        "USER: {$user}\r\n".
-                        "UKEY: {$key}\r\n";
+            "USER: {$user}\r\n".
+            "UKEY: {$key}\r\n";
 
         set_error_handler([__CLASS__,'errorHandler']);
         set_exception_handler([__CLASS__,'exceptionHandler']);
@@ -81,54 +83,58 @@ class HttpLogger {
     public static function info($message)
     {
         $message = new message($message, self::$levels['info']);
-
         array_push(self::$stack, $message);
         self::_log($message);
     }
 
     private static function _log(message $message)
     {
-         file_get_contents(self::$apiBaseUrl, false, stream_context_create(array(
-            'http' => array(
-                'method'  => 'PUT',
-                'header'  => self::$header,
-                'content' => $message->toJson(),
-                'timeout' => self::$timeout
-            )
-        )));
+        if(self::$enabled){
+            $streamContext = [
+                'http' => [
+                    'method'  => 'PUT',
+                    'header'  => self::$header,
+                    'content' => $message->toJson(),
+                    'timeout' => self::$timeout
+                ]
+            ];
+            file_get_contents(self::$apiBaseUrl, false, stream_context_create($streamContext));
+        }
     }
 
     public static function shutdown()
     {
-        self::fatal("Fatal error...");
+        $error = error_get_last();
+        if($error['message']){
+            $message = new message($error['message'], self::$levels['fatal']);
+            $message->setFile($error['file']);
+            $message->setLine($error['line']);
+        }else{
+            $message = new message("Exit", self::$levels['notice']);
+        }
+
+        self::_log($message);
     }
 
     public static function errorHandler($errno, $errstr, $errfile, $errline)
     {
+        $msg = "[{$errno}] {$errstr} in {$errfile} on {$errline}.";
+
         switch ($errno) {
             case E_USER_ERROR:
-
-                $msg = "Fatal error [{$errno}] {$errstr}<br/>";
-                $msg .= "On string {$errline} in file {$errfile}<br/>";
-                self::error(new message(self::$levels['error'], $msg));
+                self::error($msg);
                 break;
 
             case E_USER_WARNING:
-
-                $msg = "Warning - [{$errno}] on {$errstr}";
-                self::warning(new message(self::$levels['warning'], $msg));
+                self::warning($msg);
                 break;
 
             case E_USER_NOTICE:
-
-                $msg = "Notice - [{$errno}] on {$errstr}";
-                self::notice(new message(self::$levels['warning'], $msg));
+                self::notice($msg);
                 break;
 
             default:
-
-                $msg = "Unknow error - [{$errno}] on {$errstr}";
-                self::info(new message(self::$levels['info'], $msg));
+                self::warning($msg);
                 break;
         }
 
@@ -140,12 +146,22 @@ class HttpLogger {
         self::error($e->getMessage());
     }
 
+    public static function enable()
+    {
+        self::$enabled = true;
+    }
+
+    public static function disable()
+    {
+        self::$enabled = false;
+    }
+
 }
 
 class message {
 
 
-    private $message;
+    private $messageStr;
 
     private $level;
 
@@ -163,29 +179,30 @@ class message {
     {
         $backtrace = debug_backtrace();
 
-        $this->message      = (string)$message;
+        $this->messageStr  = strval($message);
         $this->level        = intval($level);
-        $this->file         = $backtrace[1]['file'];
-        $this->line         = $backtrace[1]['line'];
+        $this->file         = isset($backtrace[1]['file']) ? $backtrace[1]['file'] : 'unknown file';
+        $this->line         = isset($backtrace[1]['line']) ? $backtrace[1]['line'] : 999999999999;
         $this->date         = time();
-        $this->stackTrace   = $backtrace;
+        $this->stackTrace   = json_encode($backtrace);
+
         self::$order++;
     }
 
-    public function message(){ return $this->message; }
-
+    public function message(){ return $this->messageStr; }
     public function level(){ return $this->level; }
-
     public function file(){ return $this->file; }
-
     public function line(){ return $this->line; }
-
     public function date(){ return $this->date; }
+
+    public function setFile($file){ $this->file = ( $file ? $file : __FILE__); }
+    public function setLine($line){ $this->line = ( $line ? $line : 999999999999); }
+
 
     public function toJson()
     {
         return json_encode([
-            "message"       => $this->message,
+            "message"       => $this->messageStr,
             "level"         => $this->level,
             "file"          => $this->file,
             "line"          => $this->line,
